@@ -154,15 +154,20 @@ class GUI:
         self.labelBottom = Label(self.Window, bg="#ABB2B9", height=80)
         self.labelBottom.place(relwidth=1, rely=0.825)
 
+        self.rcvr = StringVar()
+        self.rcvr.set('Everyone')
+        self.dropDown = OptionMenu(self.labelBottom, self.rcvr, self.users)
+        self.dropDown.place(relx=0.011, rely=0.005, relwidth=0.74, relheight=0.02)
+
         self.entryMsg = Entry(self.labelBottom, bg="#2C3E50", fg="#EAECEE", font="Helvetica 13")
         # place the given widget into the gui window
-        self.entryMsg.place(relwidth=0.74, relheight=0.06, rely=0.008, relx=0.011)
+        self.entryMsg.place(relwidth=0.74, relheight=0.04, rely=0.03, relx=0.011)
         self.entryMsg.focus()
 
         # create a Send Button
         self.buttonMsg = Button(self.labelBottom, text="Send", font="Helvetica 10 bold", width=20, bg="#ABB2B9",
                                 command=self.sendButton)
-        self.buttonMsg.place(relx=0.77, rely=0.008, relheight=0.06, relwidth=0.22)
+        self.buttonMsg.place(relx=0.77, rely=0.005, relheight=0.06, relwidth=0.22)
         self.textCons.config(cursor="arrow")
         self.entryMsg.bind('<Return>', self.sendButton)
 
@@ -215,6 +220,7 @@ class GUI:
 
     def addUser(self, name):
         self.users.append(name)
+        menu = self.dropDown['menu']
 
     def removeUser(self, name):
         self.users.remove(name)
