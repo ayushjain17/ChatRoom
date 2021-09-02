@@ -3,7 +3,7 @@ import socket
 import threading
 
 from message import *
-from user import User
+from user import User, Users
 
 HEADER = 64
 PORT = 5050
@@ -11,6 +11,7 @@ FORMAT = 'utf-8'
 DISCONNECT = "!DISCON"
 USERNAME_INVALID = "!INVALIDUSER"
 USERNAME_VALID = "!VALIDUSER"
+# SERVER = "103.87.143.205"
 SERVER = socket.gethostbyname(socket.gethostname())
 ADDR = (SERVER, PORT)
 
@@ -18,9 +19,17 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind(ADDR)
 
 users = {}
+clients = Users()
 
 
 def sendText(conn, text):
+    """
+
+    :param conn: socket object, connection to the particular client to which Text is to be sent
+    :param text: string type, text which is to be sent
+    :return: Noe
+    """
+    print("SENDING text", text)
     message = text.encode(FORMAT)
     msg_length = len(message)
     send_length = str(msg_length).encode(FORMAT)
@@ -30,6 +39,11 @@ def sendText(conn, text):
 
 
 def receiveText(conn):
+    """
+
+    :param conn: socket object, connection to the particular client from which Text is to be received
+    :return: string, returns the text received
+    """
     text = None
     connected = True
     while connected:
@@ -42,6 +56,11 @@ def receiveText(conn):
 
 
 def get_user(conn):
+    """
+
+    :param conn: socket object, connection to the particular client from which username is to be received
+    :return: string, returns the username
+    """
     print("[WAITING] Getting username")
     connected = True
     name = None
@@ -55,22 +74,56 @@ def get_user(conn):
                 sendText(conn, USERNAME_INVALID)
             else:
                 sendText(conn, USERNAME_VALID)
-                users[name] = conn
                 connected = False
             print("Acknowledgement Sent")
     return name
 
 
+def sendMessage(conn, message):
+    """
+
+    :param conn: socket object, connection to the particular client to which Message is to be sent
+    :param message: Message object, message which is to be sent
+    :return: None
+    """
+    print("SENDING message", message.msg)
+    conn.send(pickle.dumps(message))
+
+
+def sendRoom(conn):
+    """
+
+    :param conn: socket object, connection to the particular client to which previously joined clients list is to be sent
+    :return: None
+    """
+    print("SENDING Client list", clients)
+    print(pickle.dumps(clients))
+    conn.send(pickle.dumps(clients))
+
 def handle_client(conn, addr):
+    """
+
+    :param conn: socket object, connection to the particular client which has joined now and is to be handled
+    :param addr: address of the client
+    :return: None
+    """
     print(f"[NEW CONNECTION] {addr} connected. CONN : {conn}")
     try:
         user = get_user(conn)
         if user:
+            clients.users.append(user)
+            users[user] = conn
             user_data = User(user)
-            broadcastUser(user_data)
+            t = threading.Thread(target=broadcastUser, args=(user_data, ))
+            t.daemon = True
+            t.start()
+            # broadcastUser(user_data)
 
+            # t2 = threading.Thread(target=sendRoom, args=(conn, ))
+            # t2.daemon = True
+            # t2.start()
+            sendRoom(conn)
             # send the previously joined list of people
-
             connected = True
             while connected:
                 data = conn.recv(4096)
@@ -80,9 +133,15 @@ def handle_client(conn, addr):
                         connected = False
                     else:
                         if message.rcvr == ALL:
-                            broadcastText(message)
+                            t1 = threading.Thread(target=broadcastMessage, args=(message, ))
+                            t1.daemon = True
+                            t1.start()
+                            # broadcastMessage(message)
                         else:
-                            users[message.rcvr].send(pickle.dumps(message))
+                            t1 = threading.Thread(target=sendMessage, args=(users[message.rcvr], message))
+                            t1.daemon = True
+                            t1.start()
+                            # users[message.rcvr].send(pickle.dumps(message))
                         print(f"[{addr}] : {message.rcvr} : {message.msg}")
             user_data.activity = False
             broadcastUser(user_data)
@@ -93,21 +152,36 @@ def handle_client(conn, addr):
 
 
 def broadcastUser(user_data):
+    """
+
+    :param user_data: User object, user data which is to be broad-casted
+    :return: None
+    """
+    print("[BROAD-CASTING] User activity", user_data.name)
     for user in users.keys():
-        if user != user_data.name:
-            users[user].send(pickle.dumps(user_data))
+        users[user].send(pickle.dumps(user_data))
 
 
-def broadcastText(message):
+def broadcastMessage(message):
+    """
+
+    :param message: Message object, the message which is to be broad-casted
+    :return: None
+    """
+    print("[BROAD-CASTING] Message", message.msg)
     for client in users.keys():
-        if client != message.sndr:
-            users[client].send(pickle.dumps(message))
+        users[client].send(pickle.dumps(message))
 
 
 def checkActive():
     pass
 
+
 def start():
+    """
+
+    :return: None
+    """
     server.listen()
     print(f"[LISTENING] Server is listening on {SERVER}")
     while True:
@@ -116,7 +190,6 @@ def start():
         thread.start()
         print(f"[CLIENTS CONNECTED] {threading.activeCount() - 1} active clients")
 
-# handle force quiting
 
 print("[STARTING] Server is starting...")
 start()

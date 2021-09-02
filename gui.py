@@ -6,7 +6,7 @@ from tkinter import *
 from tkinter import messagebox
 
 from message import *
-from user import User
+from user import User, Users
 
 HEADER = 64
 PORT = 5050
@@ -14,6 +14,7 @@ FORMAT = 'utf-8'
 DISCONNECT = "!DISCON"
 USERNAME_INVALID = "!INVALIDUSER"
 USERNAME_VALID = "!VALIDUSER"
+# SERVER = "103.87.143.205"
 SERVER = "192.168.56.1"
 ADDR = (SERVER, PORT)
 
@@ -34,37 +35,22 @@ class GUI:
         # set the title
         self.login.title("Login")
         self.login.protocol("WM_DELETE_WINDOW", self.on_closing)
-        self.login.resizable(width=False,
-                             height=False)
-        self.login.configure(width=400,
-                             height=300)
+        self.login.resizable(width=False, height=False)
+        self.login.configure(width=400, height=300)
         # create a Label
-        self.pls = Label(self.login,
-                         text="Please login to continue",
-                         justify=CENTER,
-                         font="Helvetica 14 bold")
+        self.pls = Label(self.login, text="Please login to continue", justify=CENTER, font="Helvetica 14 bold")
 
-        self.pls.place(relheight=0.15,
-                       relx=0.2,
-                       rely=0.07)
+        self.pls.place(relheight=0.15, relx=0.2, rely=0.07)
         # create a Label
-        self.labelName = Label(self.login,
-                               text="Name: ",
-                               font="Helvetica 12")
+        self.labelName = Label(self.login, text="Name: ", font="Helvetica 12")
 
-        self.labelName.place(relheight=0.2,
-                             relx=0.1,
-                             rely=0.2)
+        self.labelName.place(relheight=0.2, relx=0.1, rely=0.2)
 
         # create a entry box for
         # typing the message
-        self.entryName = Entry(self.login,
-                               font="Helvetica 14")
+        self.entryName = Entry(self.login, font="Helvetica 14")
 
-        self.entryName.place(relwidth=0.4,
-                             relheight=0.12,
-                             relx=0.35,
-                             rely=0.2)
+        self.entryName.place(relwidth=0.4, relheight=0.12, relx=0.35, rely=0.2)
 
         # set the focus of the cursor
         self.entryName.focus()
@@ -140,8 +126,7 @@ class GUI:
         self.Window.resizable(width=False, height=False)
         self.Window.configure(width=470, height=550, bg="#17202A")
 
-        self.labelHead = Label(self.Window, bg="#17202A", fg="#EAECEE", text=self.name, font="Helvetica 13 bold",
-                               pady=5)
+        self.labelHead = Label(self.Window, bg="#17202A", fg="#EAECEE", text=self.name, font="Helvetica 13 bold", pady=5)
         self.labelHead.place(relwidth=1)
 
         self.line = Label(self.Window, width=450, bg="#ABB2B9")
@@ -187,21 +172,47 @@ class GUI:
         print("[PROCESSING] Sending text")
         self.textCons.config(state=DISABLED)
         self.entryMsg.delete(0, END)
-        message = Message(msg, time=datetime.now(), sndr=self.name)
+        rcvr = self.rcvr.get()
+        if rcvr == 'Everyone':
+            rcvr = ALL
+        message = Message(msg, rcvr=rcvr, time=datetime.now(), sndr=self.name)
         data = pickle.dumps(message)
         client.send(data)
         print("[DONE] Text sent")
         self.addTextGUI(message)
 
+    def getList(self, clients):
+        print("[RECEIVED] Client list")
+        s = ""
+        for c in clients.users:
+            print(c)
+            if c != self.name:
+                self.users.append(c)
+                s += f"{c}, "
+        if s == "":
+            s = "Empty Room"
+        else:
+            s = s[:-2] + " are already present."
+        self.updateUserOptions()
+        self.textCons.config(state=NORMAL)
+        self.textCons.insert(END, s + "\n\n")
+        self.textCons.config(state=DISABLED)
+        self.textCons.see(END)
+        print(f"[RECEIVED] {s}")
+
     def receive(self):
         while True:
             data = client.recv(4096)
             if data:
+                print(data)
                 info = pickle.loads(data)
-                if type(info) == Message:
+                print(type(info))
+                if type(info) == Message and info.sndr != self.name:
                     self.addTextGUI(info)
-                elif type(info) == User:
+                elif type(info) == User and info.name != self.name:
                     self.userActivity(info)
+                elif type(info) == Users:
+                    self.getList(info)
 
     def addTextGUI(self, message):
         t = ""
@@ -210,7 +221,7 @@ class GUI:
             time = message.time.strftime("%H:%M:%S")
             t = f", {time}"
         if message.rcvr != ALL:
-            mode = "WHISPER"
+            mode = "(WHISPER)"
         s = f"{mode} [{message.sndr}{t}] : {message.msg}"
         self.textCons.config(state=NORMAL)
         self.textCons.insert(END, s + "\n\n")
@@ -218,23 +229,29 @@ class GUI:
         self.textCons.see(END)
         print(f"[RECEIVED] {s}")
 
-    def addUser(self, name):
-        self.users.append(name)
+    def updateUserOptions(self):
+        rcvr = self.rcvr.get()
         menu = self.dropDown['menu']
+        menu.delete(0, 'end')
 
-    def removeUser(self, name):
-        self.users.remove(name)
+        for user in self.users:
+            menu.add_command(label=user, command=lambda u=user: self.rcvr.set(u))
+
+        if rcvr not in self.users:
+            self.rcvr.set("Everyone")
 
     def userActivity(self, user_data):
 
         # maintain list of people joining and leaving
         # provide dropdown accordingly
         if user_data.activity:
-            self.addUser(user_data.name)
+            self.users.append(user_data.name)
             s = f"{user_data.name} joined the chat."
         else:
-            self.removeUser(user_data.name)
+            self.users.remove(user_data.name)
             s = f"{user_data.name} left the chat."
+        self.updateUserOptions()
+
         self.textCons.config(state=NORMAL)
         self.textCons.insert(END, s + "\n\n")
         self.textCons.config(state=DISABLED)
