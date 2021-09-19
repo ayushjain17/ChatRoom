@@ -6,7 +6,7 @@ from tkinter import *
 from tkinter import messagebox
 
 from message import *
-from user import User, Users
+from user import User, ChatRoom
 
 HEADER = 64
 PORT = 5050
@@ -14,12 +14,12 @@ FORMAT = 'utf-8'
 DISCONNECT = "!DISCON"
 USERNAME_INVALID = "!INVALIDUSER"
 USERNAME_VALID = "!VALIDUSER"
-# SERVER = "103.87.143.205"
-SERVER = "192.168.56.1"
+# SERVER = "192.168.56.1"
+SERVER = "192.168.0.132"
+# SERVER = "4.tcp.ngrok.io"
 ADDR = (SERVER, PORT)
 
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.connect(ADDR)
 
 
 class GUI:
@@ -30,6 +30,9 @@ class GUI:
         self.Window.withdraw()
         self.Window.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+        t = threading.Thread(target=self.connect)
+        t.daemon = True
+
         # login window
         self.login = Toplevel()
         # set the title
@@ -37,40 +40,57 @@ class GUI:
         self.login.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.login.resizable(width=False, height=False)
         self.login.configure(width=400, height=300)
+
         # create a Label
         self.pls = Label(self.login, text="Please login to continue", justify=CENTER, font="Helvetica 14 bold")
-
         self.pls.place(relheight=0.15, relx=0.2, rely=0.07)
+
         # create a Label
         self.labelName = Label(self.login, text="Name: ", font="Helvetica 12")
-
         self.labelName.place(relheight=0.2, relx=0.1, rely=0.2)
 
-        # create a entry box for
-        # typing the message
+        # create a entry box for typing the message
         self.entryName = Entry(self.login, font="Helvetica 14")
-
         self.entryName.place(relwidth=0.4, relheight=0.12, relx=0.35, rely=0.2)
-
         # set the focus of the cursor
         self.entryName.focus()
 
-        # create a Continue Button
-        # along with action
+        # create a Continue Button along with action
         self.go = Button(self.login, text="CONTINUE", font="Helvetica 14 bold", command=self.goAhead)
+        self.go["state"] = "disabled"
         self.go.place(relx=0.4, rely=0.55)
-        self.entryName.bind('<Return>', self.goAhead)
+
+        self.connecting = Label(self.login, text="Connecting to the Server ...", justify=CENTER, font="Helvetica 10")
+        self.connecting.place(relheight=0.15, relx=0.2, rely=0.4)
+
+        t.start()
         self.Window.mainloop()
+
+    def connect(self):
+        retry = True
+        while retry:
+            try:
+                client.connect(ADDR)
+                retry = False
+                print(f"[CONNECTED] {client}")
+            except:
+                pass
+        self.entryName.bind('<Return>', self.goAhead)
+        self.go["state"] = "normal"
+        self.connecting.config(text="Connected to the Server")
 
     def on_closing(self):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
-            m = Message(DISCONNECT)
-            client.send(pickle.dumps(m))
             try:
-                self.login.destroy()
+                m = Message(DISCONNECT)
+                client.send(pickle.dumps(m))
+            except:
+                pass
             finally:
-                self.Window.destroy()
-            # print("Destroyed")
+                try:
+                    self.login.destroy()
+                finally:
+                    self.Window.destroy()
             sys.exit(0)
 
     @staticmethod
@@ -100,6 +120,7 @@ class GUI:
         name = self.entryName.get()
         if not name or name == "":
             return
+
         self.sendText(name)
         print("User name sent")
         text = self.receiveText()
@@ -181,11 +202,10 @@ class GUI:
         print("[DONE] Text sent")
         self.addTextGUI(message)
 
-    def getList(self, clients):
-        print("[RECEIVED] Client list")
+    def getList(self, room):
+        print("[RECEIVED] ChatRoom data")
         s = ""
-        for c in clients.users:
-            print(c)
+        for c in room.users:
             if c != self.name:
                 self.users.append(c)
                 s += f"{c}, "
@@ -200,19 +220,28 @@ class GUI:
         self.textCons.see(END)
         print(f"[RECEIVED] {s}")
 
+    def dataHandler(self, data):
+        info = pickle.loads(data)
+        print(type(info))
+        if type(info) == Message and info.sndr != self.name:
+            self.addTextGUI(info)
+        elif type(info) == User and info.name != self.name:
+            self.userActivity(info)
+        elif type(info) == ChatRoom:
+            self.getList(info)
+
     def receive(self):
+        # handle the absence of chatroom data
         while True:
-            data = client.recv(4096)
-            if data:
-                print(data)
-                info = pickle.loads(data)
-                print(type(info))
-                if type(info) == Message and info.sndr != self.name:
-                    self.addTextGUI(info)
-                elif type(info) == User and info.name != self.name:
-                    self.userActivity(info)
-                elif type(info) == Users:
-                    self.getList(info)
+            try:
+                data = client.recv(4096)
+                if data:
+                    t = threading.Thread(target=self.dataHandler, args=(data, ))
+                    t.daemon = True
+                    t.start()
+            except:
+                print("[EXCEPTION] Error while receiving data")
+
 
     def addTextGUI(self, message):
         t = ""
@@ -221,13 +250,13 @@ class GUI:
             time = message.time.strftime("%H:%M:%S")
             t = f", {time}"
         if message.rcvr != ALL:
-            mode = "(WHISPER)"
+            mode = f"({message.rcvr})"
         s = f"{mode} [{message.sndr}{t}] : {message.msg}"
         self.textCons.config(state=NORMAL)
         self.textCons.insert(END, s + "\n\n")
         self.textCons.config(state=DISABLED)
         self.textCons.see(END)
-        print(f"[RECEIVED] {s}")
+        print(f"[RECEIVED] {s}", "Broad-cast" if message.rcvr == ALL else "")
 
     def updateUserOptions(self):
         rcvr = self.rcvr.get()
@@ -244,6 +273,7 @@ class GUI:
 
         # maintain list of people joining and leaving
         # provide dropdown accordingly
+        print("[RECEIVED] Broad-cast : User activity")
         if user_data.activity:
             self.users.append(user_data.name)
             s = f"{user_data.name} joined the chat."

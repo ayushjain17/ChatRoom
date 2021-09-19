@@ -3,7 +3,7 @@ import socket
 import threading
 
 from message import *
-from user import User, Users
+from user import User, ChatRoom
 
 HEADER = 64
 PORT = 5050
@@ -12,14 +12,16 @@ DISCONNECT = "!DISCON"
 USERNAME_INVALID = "!INVALIDUSER"
 USERNAME_VALID = "!VALIDUSER"
 # SERVER = "103.87.143.205"
-SERVER = socket.gethostbyname(socket.gethostname())
+SERVER = "192.168.0.132"
+# SERVER = "localhost"
+# SERVER = socket.gethostbyname(socket.gethostname())
 ADDR = (SERVER, PORT)
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind(ADDR)
 
 users = {}
-clients = Users()
+room = ChatRoom()
 
 
 def sendText(conn, text):
@@ -47,11 +49,14 @@ def receiveText(conn):
     text = None
     connected = True
     while connected:
-        text_length = conn.recv(HEADER).decode(FORMAT)
-        if text_length:
-            text_length = int(text_length)
-            text = conn.recv(text_length).decode(FORMAT)
-            connected = False
+        try:
+            text_length = conn.recv(HEADER).decode(FORMAT)
+            if text_length:
+                text_length = int(text_length)
+                text = conn.recv(text_length).decode(FORMAT)
+                connected = False
+        except:
+            print("[EXCEPTION] Error while receiving text")
     return text
 
 
@@ -65,17 +70,21 @@ def get_user(conn):
     connected = True
     name = None
     while connected:
-        name_length = conn.recv(HEADER).decode(FORMAT)
-        if name_length:
-            name_length = int(name_length)
-            name = conn.recv(name_length).decode(FORMAT)
-            print(f"Received : {name}")
-            if name in users:
-                sendText(conn, USERNAME_INVALID)
-            else:
-                sendText(conn, USERNAME_VALID)
-                connected = False
-            print("Acknowledgement Sent")
+        try:
+            name_length = conn.recv(HEADER).decode(FORMAT)
+            if name_length:
+                name_length = int(name_length)
+                name = conn.recv(name_length).decode(FORMAT)
+                print(f"Received : {name}")
+                if name in users:
+                    sendText(conn, USERNAME_INVALID)
+                else:
+                    sendText(conn, USERNAME_VALID)
+                    connected = False
+                print("Acknowledgement Sent")
+        except:
+            print("[EXCEPTION] Error while accepting username")
+            connected = False
     return name
 
 
@@ -93,12 +102,12 @@ def sendMessage(conn, message):
 def sendRoom(conn):
     """
 
-    :param conn: socket object, connection to the particular client to which previously joined clients list is to be sent
+    :param conn: socket object, connection to the particular client to which previously joined room list is to be sent
     :return: None
     """
-    print("SENDING Client list", clients)
-    print(pickle.dumps(clients))
-    conn.send(pickle.dumps(clients))
+    print("SENDING Client list", room)
+    # print(pickle.dumps(room))
+    conn.send(pickle.dumps(room))
 
 def handle_client(conn, addr):
     """
@@ -111,7 +120,7 @@ def handle_client(conn, addr):
     try:
         user = get_user(conn)
         if user:
-            clients.users.append(user)
+            room.users.append(user)
             users[user] = conn
             user_data = User(user)
             t = threading.Thread(target=broadcastUser, args=(user_data, ))
@@ -144,11 +153,12 @@ def handle_client(conn, addr):
                             # users[message.rcvr].send(pickle.dumps(message))
                         print(f"[{addr}] : {message.rcvr} : {message.msg}")
             user_data.activity = False
+            room.users.remove(user)
             broadcastUser(user_data)
+            del users[user]
     finally:
         conn.close()
     print(f"{user} disconnected")
-    del users[user]
 
 
 def broadcastUser(user_data):
@@ -157,9 +167,10 @@ def broadcastUser(user_data):
     :param user_data: User object, user data which is to be broad-casted
     :return: None
     """
-    print("[BROAD-CASTING] User activity", user_data.name)
+    print("[BROAD-CASTING] User activity", user_data, user_data.name)
+    data = pickle.dumps(user_data)
     for user in users.keys():
-        users[user].send(pickle.dumps(user_data))
+        users[user].send(data)
 
 
 def broadcastMessage(message):
@@ -169,8 +180,9 @@ def broadcastMessage(message):
     :return: None
     """
     print("[BROAD-CASTING] Message", message.msg)
+    data = pickle.dumps(message)
     for client in users.keys():
-        users[client].send(pickle.dumps(message))
+        users[client].send(data)
 
 
 def checkActive():
@@ -185,10 +197,13 @@ def start():
     server.listen()
     print(f"[LISTENING] Server is listening on {SERVER}")
     while True:
-        conn, addr = server.accept()
-        thread = threading.Thread(target=handle_client, args=(conn, addr))
-        thread.start()
-        print(f"[CLIENTS CONNECTED] {threading.activeCount() - 1} active clients")
+        try:
+            conn, addr = server.accept()
+            thread = threading.Thread(target=handle_client, args=(conn, addr))
+            thread.start()
+            print(f"[CLIENTS CONNECTED] {threading.activeCount() - 1} active clients")
+        except:
+            print("[EXCEPTION] Unknown request")
 
 
 print("[STARTING] Server is starting...")

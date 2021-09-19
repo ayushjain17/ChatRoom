@@ -5,6 +5,6 @@ class User:
         self.activity = activity
 
 
-class Users:
+class ChatRoom:
     def __init__(self):
         self.users = []
